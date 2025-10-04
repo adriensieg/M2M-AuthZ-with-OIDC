@@ -4,55 +4,85 @@ Service-to-Service Authentication with OAuth 2.0 and OpenID Connect
 
 ```mermaid
 flowchart TD
-
-A[Start: Need Authentication & Authorization] --> B{Is the actor a Human User or a Machine?}
-
-%% HUMAN FLOW
-B -->|Human User| C[Use OIDC with OAuth2 and ID Token]
-C --> D{Frontend or Backend?}
-D -->|Frontend App| E[Use Authorization Code Flow with PKCE]
-E --> F[Client registers redirect_uri and PKCE support]
-F --> G[User logs in via Authorization Server]
-G --> H[AS issues ID Token and Access Token]
-H --> I[Backend validates ID Token]
-I --> I1[Check signature, nonce, exp, aud]
-I1 --> J[Access Token used to call protected APIs]
-J --> K[APIs validate token]
-K --> K1[Check signature, audience, scopes]
-K1 --> L[✅ AuthN + AuthZ complete for user]
-
-%% MACHINE FLOW
-B -->|Machine Service| M[Use OAuth2 Client Credentials Flow]
-M --> N{How does the service authenticate to AS?}
-N -->|Private key recommended| O[Use JWT Client Assertion]
-O --> O1[Service signs JWT with private key]
-O1 --> O1a[JWT contains: iss=sub=client_id, aud=token_endpoint, exp, jti]
-O1a --> O2[AS verifies JWT signature using registered public key]
-O2 --> O3[AS issues Access Token to service]
-O3 --> P[Access Token audience = target service]
-P --> Q{Does target service need fine-grained control?}
-Q -->|Yes| R[Use Scopes for granular permissions]
-R --> R1[Example: summarize:write, email:send]
-Q -->|No| S[Use Audience-only access check]
-R1 --> T[Target service validates token]
-S --> T
-T --> T1[Check sig, aud, scope, exp]
-T1 --> U[✅ AuthN + AuthZ complete for service]
-
-%% TOKEN VALIDATION STRATEGIES
-U --> V{How to validate Access Token?}
-V -->|JWT self-contained| W[Verify signature using AS public key from JWKS URI]
-V -->|Opaque token| X[Introspect via AS introspect endpoint]
-W --> Y[Check exp, aud, iss, scope claims]
-X --> Y
-Y --> Z[✅ Request authorized]
-
-%% SECURE PRACTICES
-Z --> Z1[Security Best Practices]
-Z1 --> ZA[✅ Always use TLS]
-Z1 --> ZB[✅ Use asymmetric keys, no client secrets in code]
-Z1 --> ZC[✅ Rotate keys via JWKS]
-Z1 --> ZD[✅ Use short-lived tokens, refresh where needed]
-Z1 --> ZE[✅ Validate nonce, audience, scope strictly]
-Z1 --> ZF[✅ Log and monitor AS and token activity]
+    Start[Who needs to authenticate?] --> A{Human User or Service?}
+    
+    %% HUMAN USER PATH
+    A -->|Human User| B{Where does the user interact?}
+    B -->|Frontend: SPA, Mobile App| C[Use: Authorization Code + PKCE]
+    B -->|Frontend: Server-rendered web app| D[Use: Authorization Code Flow]
+    B -->|Backend API called by trusted client| E{What do you control?}
+    E -->|I control the client| F[Use: Session Cookies or JWT]
+    E -->|Third party calls my API| G[Use: OAuth2 Access Tokens]
+    
+    %% SERVICE PATH
+    A -->|Service / Machine| H{Does it act on behalf of a user?}
+    H -->|Yes| I[Use: OAuth2 Token Exchange or OBO Flow]
+    H -->|No| J{Where is the service running?}
+    
+    %% CLOUD PROVIDERS
+    J -->|Google Cloud| K{Which GCP service?}
+    K -->|GKE| L[Use: Workload Identity Federation]
+    K -->|Cloud Run, Cloud Functions, Compute Engine| M[Use: Service Account with ADC]
+    K -->|Outside GCP but calling GCP| N[Use: Workload Identity Federation for external]
+    
+    J -->|AWS| O{Which AWS service?}
+    O -->|EC2, ECS, Lambda| P[Use: IAM Roles]
+    O -->|Outside AWS but calling AWS| Q[Use: IAM OIDC Federation]
+    
+    J -->|Azure| R{Which Azure service?}
+    R -->|VM, Container Apps, Functions| S[Use: Managed Identity]
+    R -->|Outside Azure but calling Azure| T[Use: Workload Identity Federation]
+    
+    %% OTHER ENVIRONMENTS
+    J -->|Kubernetes non-GKE| U[Use: Service Account Token Projection]
+    J -->|On-premise or local dev| V{Is there an Authorization Server?}
+    V -->|Yes| W{How sensitive is this service?}
+    W -->|High security| X[Use: OAuth2 Client Credentials + Private Key JWT]
+    W -->|Medium security| Y[Use: OAuth2 Client Credentials + Client Secret]
+    W -->|Low security or dev only| Z[Use: API Keys or Basic Auth]
+    V -->|No| AA{Do services need mutual trust?}
+    AA -->|Yes| AB[Use: mTLS]
+    AA -->|No| AC[Use: API Keys or Shared Secrets]
+    
+    %% TOKEN VALIDATION
+    C --> TV{How should APIs validate tokens?}
+    D --> TV
+    G --> TV
+    I --> TV
+    X --> TV
+    Y --> TV
+    
+    TV -->|Token is JWT and performance matters| JWT[Validate locally with JWKS]
+    TV -->|Token is opaque or need real-time revocation| OPQ[Validate via Introspection Endpoint]
+    
+    %% AUTHORIZATION
+    JWT --> AZ{How to authorize requests?}
+    OPQ --> AZ
+    F --> AZ
+    L --> AZ
+    M --> AZ
+    P --> AZ
+    S --> AZ
+    U --> AZ
+    AB --> AZ
+    Z --> AZ
+    AC --> AZ
+    N --> AZ
+    Q --> AZ
+    T --> AZ
+    
+    AZ -->|Simple roles like admin, user, viewer| RBAC[Use: Role-Based Access Control]
+    AZ -->|Need fine-grained rules| ABAC[Use: Attribute-Based Access Control]
+    AZ -->|API with standardized permissions| SCOPE[Use: OAuth2 Scopes]
+    AZ -->|Resource-level permissions| PERM[Use: Permission-Based or ACLs]
+    
+    %% SPECIAL CASES
+    Start --> SC{Special scenarios?}
+    SC -->|Mobile app needs backend API| MOB[Use: Authorization Code + PKCE + Backend for Frontend pattern]
+    SC -->|Microservices mesh| MESH[Use: Service Mesh with mTLS + JWT propagation]
+    SC -->|API Gateway in front| GW[Use: Gateway handles AuthN, services handle AuthZ]
+    SC -->|Serverless functions| SLESS[Use: Cloud provider identity + Function-level IAM]
+    SC -->|Legacy system integration| LEG[Use: API Gateway with token translation]
+    SC -->|Multi-tenant SaaS| MT[Use: Tenant ID in token claims + row-level security]
+    SC -->|Dev/Test environment| DEV[Use: Simplified auth but never reuse in production]
 ```
